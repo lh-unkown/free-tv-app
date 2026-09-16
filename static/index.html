@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>Free TV Explore</title>
+    <!-- Include HLS.js for m3u8 playback -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- Include FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Vercel Web Analytics -->
+    <script>
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+    <div class="app-container">
+        <!-- Sidebar for Countries & Quick Features -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fa-solid fa-tv"></i> Free TV</h2>
+                <div class="global-search-box">
+                    <i class="fa-solid fa-globe"></i>
+                    <input type="text" id="globalSearch" placeholder="Search ALL channels...">
+                </div>
+                <div class="search-box">
+                    <i class="fa-solid fa-search"></i>
+                    <input type="text" id="countrySearch" placeholder="Search country...">
+                </div>
+            </div>
+
+            <!-- Quick Access Special Categories -->
+            <ul class="special-list">
+                <li class="country-item special-item" id="favsBtn">
+                    <span class="flag">⭐</span>
+                    <span class="country-name">Favorites</span>
+                    <span class="badge" id="favsCount">0</span>
+                </li>
+                <li class="country-item special-item" id="historyBtn">
+                    <span class="flag">🕒</span>
+                    <span class="country-name">Recently Watched</span>
+                </li>
+                <li class="country-item special-item" id="m3uImportBtn">
+                    <span class="flag">📁</span>
+                    <span class="country-name">Import M3U Playlist</span>
+                </li>
+            </ul>
+
+            <div class="sidebar-divider"><span>Countries</span></div>
+
+            <ul class="country-list" id="countryList">
+                <div class="loading-spinner"></div>
+            </ul>
+        </aside>
+
+        <!-- Main Content Area for Channels -->
+        <main class="main-content">
+            <header class="top-nav">
+                <div class="header-titles">
+                    <button class="hamburger-btn" id="hamburgerBtn"><i class="fa-solid fa-bars"></i></button>
+                    <div class="header-text-content">
+                        <h1 id="selectedCountryTitle">Select a Country</h1>
+                        <div class="category-filters" id="categoryFilters"></div>
+                    </div>
+                </div>
+                <div class="nav-right-controls">
+                    <div class="channel-search-box">
+                        <i class="fa-solid fa-search"></i>
+                        <input type="text" id="channelSearch" placeholder="Search channels...">
+                    </div>
+                    <button class="nav-action-btn" id="viewToggleBtn" title="Toggle Grid/List View">
+                        <i class="fa-solid fa-list" id="viewToggleIcon"></i>
+                    </button>
+                    <button class="nav-action-btn" id="themeToggleBtn" title="Toggle Dark/Light Theme">
+                        <i class="fa-solid fa-moon" id="themeToggleIcon"></i>
+                    </button>
+                </div>
+            </header>
+            
+            <div class="channel-grid" id="channelGrid">
+                <div class="placeholder-message">
+                    <i class="fa-solid fa-globe"></i>
+                    <p>Choose a country from the sidebar to explore free tv channels.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Video Player Modal / Floating Container -->
+    <div class="player-modal" id="playerModal">
+        <div class="player-content" id="playerContent">
+            <div class="player-header">
+                <div class="player-title-box">
+                    <h3 id="nowPlayingTitle">Channel Name</h3>
+                    <span id="nowPlayingCategory" class="player-badge">Live</span>
+                </div>
+                <div class="player-action-bar">
+                    <div class="quality-control hidden" id="qualityControl">
+                        <i class="fa-solid fa-gear"></i>
+                        <select id="qualitySelector">
+                            <option value="-1">Auto</option>
+                        </select>
+                    </div>
+                    <button class="player-btn" id="favToggleBtn" title="Favorite Channel"><i class="fa-regular fa-star" id="favIcon"></i></button>
+                    <button class="player-btn" id="shareBtn" title="Share Channel"><i class="fa-solid fa-share-nodes"></i></button>
+                    <button class="player-btn" id="pipBtn" title="Picture-in-Picture"><i class="fa-solid fa-clone"></i></button>
+                    <button class="player-btn" id="miniPlayerBtn" title="Minimize to Floating Window"><i class="fa-solid fa-compress"></i></button>
+                    <button class="player-btn" id="fullscreenBtn" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+                    <button class="close-btn" id="closePlayerBtn" title="Close Player"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            </div>
+            <div class="video-container" id="videoContainer">
+                <video id="videoPlayer" controls autoplay></video>
+                <!-- Radio Audio Visualizer Overlay -->
+                <div id="radioVisualizer" class="radio-visualizer hidden">
+                    <div class="radio-icon-pulse"><i class="fa-solid fa-radio"></i></div>
+                    <div class="visualizer-bars">
+                        <span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                    <p class="radio-status">Streaming Audio Radio Live...</p>
+                </div>
+                <div id="playerError" class="player-error hidden">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <p>Stream is currently offline or unsupported.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Popup -->
+    <div id="toastNotification" class="toast-notification hidden"></div>
+
+    <!-- Custom M3U Modal -->
+    <div class="m3u-modal" id="m3uModal">
+        <div class="m3u-modal-content">
+            <div class="m3u-modal-header">
+                <h3><i class="fa-solid fa-file-import"></i> Import Custom M3U Playlist</h3>
+                <button class="close-btn" id="closeM3uModalBtn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="m3u-modal-body">
+                <p>Enter an M3U / M3U8 Playlist URL to load your custom IPTV streams:</p>
+                <input type="url" id="m3uUrlInput" placeholder="https://example.com/playlist.m3u" class="m3u-input">
+                <div class="m3u-actions">
+                    <button id="submitM3uBtn" class="primary-btn"><i class="fa-solid fa-cloud-arrow-down"></i> Load Playlist</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

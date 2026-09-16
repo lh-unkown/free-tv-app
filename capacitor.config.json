@@ -1,0 +1,10 @@
+{
+  "appId": "com.freetv.app",
+  "appName": "Free TV App",
+  "webDir": "static",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://free-tv-app.vercel.app",
+    "cleartext": true
+  }
+}

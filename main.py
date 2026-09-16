@@ -1,0 +1,262 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import httpx
+import uvicorn
+import os
+import re
+from pathlib import Path
+from typing import List, Dict, Any
+import asyncio
+
+async def check_stream_health(client: httpx.AsyncClient, channel: dict) -> dict:
+    try:
+        # Use a quick GET stream request to read headers without downloading the full video
+        async with client.stream("GET", channel['url'], timeout=3.0, follow_redirects=True) as response:
+            channel['working'] = response.status_code < 400 or response.status_code in [401, 403, 405]
+    except Exception:
+        channel['working'] = False
+    return channel
+
+app = FastAPI(title="Free TV App")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+def parse_m3u(content: str):
+    channels = []
+    current_channel = {}
+    
+    # regex to match attributes like tvg-logo="url"
+    attr_pattern = re.compile(r'([\w-]+)="([^"]*)"')
+    
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        
+        if line.startswith("#EXTINF:"):
+            current_channel = {}
+            # The line format: #EXTINF:-1 tvg-id="id" tvg-logo="logo" group-title="Comedy",Channel Name
+            # Split by comma to get the channel name
+            parts = line.split(',', 1)
+            name = parts[1].strip() if len(parts) > 1 else "Unknown"
+            current_channel['name'] = name
+            
+            # Find all attributes
+            attrs = attr_pattern.findall(parts[0])
+            for key, value in attrs:
+                current_channel[key] = value
+                
+        elif not line.startswith("#"):
+            if "name" in current_channel:
+                current_channel["url"] = line
+                channels.append(current_channel)
+                current_channel = {}
+                
+    return channels
+
+GLOBAL_CHANNELS = []
+GLOBAL_CHANNELS_LOADED = False
+
+CUSTOM_LK_CHANNELS = [
+    {
+        "name": "Sirasa TV",
+        "tvg-logo": "https://upload.wikimedia.org/wikipedia/en/thumb/0/07/Sirasa_TV_logo.png/250px-Sirasa_TV_logo.png",
+        "group-title": "General",
+        "url": "https://edge2-moblive.yuppcdn.net/transsd/smil:sirtv09.smil/playlist.m3u8"
+    },
+    {
+        "name": "TV Derana",
+        "tvg-logo": "https://upload.wikimedia.org/wikipedia/en/d/db/TV_Derana_Logo.png",
+        "group-title": "General",
+        "url": "https://edge3-moblive.yuppcdn.net/transhd2/smil:detv04.smil/index.m3u8"
+    },
+    {
+        "name": "ITN",
+        "tvg-logo": "https://upload.wikimedia.org/wikipedia/en/3/30/Independent_Television_Network.png",
+        "group-title": "General",
+        "url": "https://edge4-moblive.yuppcdn.net/transsd/smil:itn43.smil/playlist.m3u8"
+    },
+    {
+        "name": "Hiru TV",
+        "tvg-logo": "https://upload.wikimedia.org/wikipedia/en/thumb/a/ae/Hiru_TV_logo.png/250px-Hiru_TV_logo.png",
+        "group-title": "General",
+        "url": "https://edge4-moblive.yuppcdn.net/transhd2/smil:hitv17.smil/index.m3u8"
+    }
+]
+
+async def get_global_channels() -> List[Dict[str, Any]]:
+    global GLOBAL_CHANNELS, GLOBAL_CHANNELS_LOADED
+    if GLOBAL_CHANNELS_LOADED:
+        return GLOBAL_CHANNELS
+        
+    url = "https://iptv-org.github.io/iptv/index.m3u"
+    async with httpx.AsyncClient() as client:
+        # 30MB global index might take a bit
+        response = await client.get(url, timeout=120.0)
+        response.raise_for_status()
+        GLOBAL_CHANNELS = parse_m3u(response.text)
+        GLOBAL_CHANNELS.extend(CUSTOM_LK_CHANNELS)
+        GLOBAL_CHANNELS_LOADED = True
+    return GLOBAL_CHANNELS
+
+@app.get("/api/countries")
+async def get_countries():
+    url = "https://iptv-org.github.io/api/countries.json"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=10.0)
+            response.raise_for_status()
+            countries = response.json()
+            # Sort countries by name
+            countries.sort(key=lambda x: x.get('name', ''))
+            countries.insert(0, {"name": "🏏 Global Sports (Live Cricket First)", "code": "SPORTS"})
+            countries.insert(1, {"name": "📻 Global Radio", "code": "RADIO"})
+            return countries
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch countries: {str(e)}")
+
+@app.get("/api/channels/{country_code}")
+async def get_channels(country_code: str):
+    is_country = country_code.upper() not in ["SPORTS", "RADIO"]
+    
+    # Fetch the M3U playlist for the specific country
+    if country_code.upper() == "SPORTS":
+        url = "https://iptv-org.github.io/iptv/categories/sports.m3u"
+    elif country_code.upper() == "RADIO":
+        url = "https://iptv-org.github.io/iptv/categories/music.m3u"
+    else:
+        url = f"https://iptv-org.github.io/iptv/countries/{country_code.lower()}.m3u"
+        
+    async def fetch_tv(client):
+        try:
+            response = await client.get(url, timeout=20.0)
+            if response.status_code == 404:
+                return []
+            response.raise_for_status()
+            return parse_m3u(response.text)
+        except Exception:
+            return []
+
+    async def fetch_radio(client):
+        if not is_country:
+            return []
+        radio_url = f"https://de1.api.radio-browser.info/json/stations/bycountrycodeexact/{country_code.upper()}?limit=100&hidebroken=true&order=clickcount&reverse=true"
+        try:
+            response = await client.get(radio_url, timeout=10.0)
+            if response.status_code == 200:
+                stations = response.json()
+                radio_channels = []
+                for s in stations:
+                    stream_url = s.get('url_resolved') or s.get('url')
+                    if stream_url:
+                        name = s.get('name', 'Unknown Radio').strip()
+                        radio_channels.append({
+                            "name": f"📻 {name}",
+                            "tvg-logo": s.get('favicon', ''),
+                            "group-title": "Radio",
+                            "url": stream_url
+                        })
+                return radio_channels
+        except Exception as ex:
+            print(f"Failed to fetch radio: {ex}")
+        return []
+
+    async with httpx.AsyncClient() as client:
+        try:
+            if is_country:
+                tv_channels, radio_channels = await asyncio.gather(fetch_tv(client), fetch_radio(client))
+                channels = tv_channels + radio_channels
+                if not channels:
+                    return []
+            else:
+                response = await client.get(url, timeout=20.0)
+                if response.status_code == 404:
+                    return [] # No channels found for this country
+                response.raise_for_status()
+                channels = parse_m3u(response.text)
+            
+            if country_code.lower() == "lk":
+                channels.extend(CUSTOM_LK_CHANNELS)
+                
+            if country_code.upper() == "SPORTS":
+                # Prioritize cricket channels
+                cricket_keywords = ["cricket", "star sports", "willow", "fox cricket", "ptv sports", "ten sports", "sky sports"]
+                def sort_key(c):
+                    name = c.get('name', '').lower()
+                    if any(kw in name for kw in cricket_keywords):
+                        return 0 # Top priority for Cricket
+                    return 1 # Normal priority
+                
+                channels.sort(key=sort_key)
+                
+                # To prevent endless loading, only dynamically verify the top 100 important channels
+                channels_to_check = channels[:100]
+                
+                # Verify these streams concurrently
+                async with httpx.AsyncClient(limits=httpx.Limits(max_connections=100)) as health_client:
+                    tasks = [check_stream_health(health_client, c) for c in channels_to_check]
+                    checked_channels = await asyncio.gather(*tasks)
+                
+                # Filter only the channels that responded successfully
+                working_channels = [c for c in checked_channels if c.get('working')]
+                
+                # Fallback in case every single one timed out
+                if len(working_channels) < 5:
+                    return channels[:50]
+                
+                return working_channels
+                
+            return channels
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch channels: {str(e)}")
+
+@app.get("/api/search")
+async def search_channels(q: str):
+    if not q or len(q) < 2:
+        return []
+        
+    try:
+        channels = await get_global_channels()
+        q_lower = q.lower()
+        # Find matches by searching substring in channel name
+        results = [c for c in channels if q_lower in c.get('name', '').lower()]
+        
+        # Limit to 150 results so the frontend doesn't freeze with too many DOM elements
+        return results[:150]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+@app.get("/api/parse_m3u_url")
+async def parse_m3u_url(url: str):
+    if not url:
+        raise HTTPException(status_code=400, detail="URL parameter required")
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=15.0, follow_redirects=True)
+            response.raise_for_status()
+            channels = parse_m3u(response.text)
+            return channels
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch M3U playlist: {str(e)}")
+
+
+# Mount the static directory
+static_dir = Path(__file__).parent / "static"
+os.makedirs(static_dir, exist_ok=True)
+
+# create dummy index.html if static directory is empty to avoid startup errors
+index_file = static_dir / "index.html"
+if not index_file.exists():
+    index_file.write_text("<html><body>Frontend loading...</body></html>")
+
+app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
