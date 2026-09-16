@@ -246,6 +246,25 @@ async def parse_m3u_url(url: str):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch M3U playlist: {str(e)}")
 
+PRESET_PLAYLISTS = [
+    {"id": "sports", "name": "🏆 Global Sports & Cricket", "icon": "fa-trophy", "category": "Sports", "url": "https://iptv-org.github.io/iptv/categories/sports.m3u", "description": "Live Sports, Cricket, Football, Tennis & Racing"},
+    {"id": "movies", "name": "🎬 Movies & Cinema", "icon": "fa-film", "category": "Movies", "url": "https://iptv-org.github.io/iptv/categories/movies.m3u", "description": "24/7 Movie Channels, Blockbusters & Classic Cinema"},
+    {"id": "news", "name": "📰 World News 24/7", "icon": "fa-newspaper", "category": "News", "url": "https://iptv-org.github.io/iptv/categories/news.m3u", "description": "Breaking International News & Financial Updates"},
+    {"id": "music", "name": "🎶 Music & Radio", "icon": "fa-music", "category": "Music", "url": "https://iptv-org.github.io/iptv/categories/music.m3u", "description": "Live Music Videos, Concerts & Global Radio Streams"},
+    {"id": "kids", "name": "🧸 Kids & Animation", "icon": "fa-child", "category": "Kids", "url": "https://iptv-org.github.io/iptv/categories/animation.m3u", "description": "Cartoons, Animated Series & Children Shows"},
+    {"id": "docs", "name": "📚 Science & Documentaries", "icon": "fa-book-atlas", "category": "Documentaries", "url": "https://iptv-org.github.io/iptv/categories/documentary.m3u", "description": "Nature, History, Science & Discovery Streams"},
+    {"id": "series", "name": "🍿 Entertainment & Shows", "icon": "fa-tv", "category": "Entertainment", "url": "https://iptv-org.github.io/iptv/categories/entertainment.m3u", "description": "Drama, Comedy, Reality TV & Variety Shows"},
+    {"id": "lk", "name": "🇱🇰 Sri Lanka TV & Radio", "icon": "fa-flag", "category": "Regional", "url": "https://iptv-org.github.io/iptv/countries/lk.m3u", "description": "Sirasa, Derana, ITN, Hiru & Local Sri Lankan Channels"},
+    {"id": "in", "name": "🇮🇳 India Channels", "icon": "fa-flag", "category": "Regional", "url": "https://iptv-org.github.io/iptv/countries/in.m3u", "description": "Hindi, Tamil, Malayalam, Telugu & Indian TV Streams"},
+    {"id": "us", "name": "🇺🇸 USA TV", "icon": "fa-flag", "category": "Regional", "url": "https://iptv-org.github.io/iptv/countries/us.m3u", "description": "American Networks, Local & National US Broadcasts"}
+]
+
+@app.get("/api/preset_playlists")
+async def get_preset_playlists():
+    return PRESET_PLAYLISTS
+
+
+
 
 # Mount the static directory
 static_dir = Path(__file__).parent / "static"

@@ -46,6 +46,10 @@
                     <span class="flag">🕒</span>
                     <span class="country-name">Recently Watched</span>
                 </li>
+                <li class="country-item special-item" id="freePlaylistsBtn">
+                    <span class="flag">✨</span>
+                    <span class="country-name">Free Playlists</span>
+                </li>
                 <li class="country-item special-item" id="m3uImportBtn">
                     <span class="flag">📁</span>
                     <span class="country-name">Import M3U Playlist</span>
@@ -144,7 +148,14 @@
                 <button class="close-btn" id="closeM3uModalBtn"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="m3u-modal-body">
-                <p>Enter an M3U / M3U8 Playlist URL to load your custom IPTV streams:</p>
+                <div class="preset-section">
+                    <h4><i class="fa-solid fa-sparkles"></i> Curated Free Playlists:</h4>
+                    <div class="preset-grid" id="presetGrid">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                <div class="m3u-divider"><span>OR Custom M3U URL</span></div>
+                <p>Enter any custom M3U / M3U8 Playlist URL:</p>
                 <input type="url" id="m3uUrlInput" placeholder="https://example.com/playlist.m3u" class="m3u-input">
                 <div class="m3u-actions">
                     <button id="submitM3uBtn" class="primary-btn"><i class="fa-solid fa-cloud-arrow-down"></i> Load Playlist</button>

@@ -216,6 +216,74 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.innerWidth <= 768) toggleSidebar();
     });
 
+    const freePlaylistsBtn = document.getElementById('freePlaylistsBtn');
+    const presetGrid = document.getElementById('presetGrid');
+
+    fetchPresetPlaylists();
+
+    async function fetchPresetPlaylists() {
+        if (!presetGrid) return;
+        try {
+            const res = await fetch('/api/preset_playlists');
+            if (!res.ok) return;
+            const presets = await res.json();
+            renderPresetGrid(presets);
+        } catch (e) {
+            console.error('Failed to load preset playlists', e);
+        }
+    }
+
+    function renderPresetGrid(presets) {
+        if (!presetGrid) return;
+        presetGrid.innerHTML = '';
+        presets.forEach(p => {
+            const card = document.createElement('div');
+            card.className = 'preset-card';
+            card.innerHTML = `
+                <i class="fa-solid ${p.icon}"></i>
+                <h5>${p.name}</h5>
+                <p>${p.description}</p>
+            `;
+            card.addEventListener('click', () => {
+                m3uModal.classList.remove('active');
+                loadPresetPlaylist(p);
+            });
+            presetGrid.appendChild(card);
+        });
+    }
+
+    async function loadPresetPlaylist(preset) {
+        channelGrid.innerHTML = '<div class="loading-spinner"></div>';
+        selectedCountryTitle.textContent = `${preset.name}`;
+        document.querySelectorAll('.country-item').forEach(el => el.classList.remove('active'));
+        if (categoryFilters) categoryFilters.innerHTML = '';
+        
+        try {
+            showToast(`Loading "${preset.name}" playlist...`);
+            const response = await fetch(`/api/parse_m3u_url?url=${encodeURIComponent(preset.url)}`);
+            if (!response.ok) throw new Error('Failed to load preset');
+            const channels = await response.json();
+            currentChannels = channels;
+            populateCategories(currentChannels);
+            filterAndRenderChannels();
+            showToast(`Loaded ${channels.length} channels from ${preset.name}!`);
+        } catch (e) {
+            showToast(`Failed to load ${preset.name} streams.`);
+            channelGrid.innerHTML = `
+                <div class="placeholder-message">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <p>Failed to load preset playlist streams.</p>
+                </div>
+            `;
+        }
+    }
+
+    if (freePlaylistsBtn) {
+        freePlaylistsBtn.addEventListener('click', () => {
+            m3uModal.classList.add('active');
+        });
+    }
+
     // --- Custom M3U Modal Handlers ---
     m3uImportBtn.addEventListener('click', () => {
         m3uModal.classList.add('active');

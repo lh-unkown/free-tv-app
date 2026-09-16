@@ -700,10 +700,75 @@ video {
 .m3u-modal-content {
     background: var(--bg-dark);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: 20px;
     width: 90%;
-    max-width: 500px;
+    max-width: 600px;
     padding: 24px;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.preset-section {
+    margin-bottom: 20px;
+}
+
+.preset-section h4 {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+
+.preset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+}
+
+.preset-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.preset-card:hover {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+
+.preset-card i {
+    font-size: 1.2rem;
+}
+
+.preset-card h5 {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.preset-card p {
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.m3u-divider {
+    text-align: center;
+    border-bottom: 1px solid var(--border-color);
+    line-height: 0.1em;
+    margin: 20px 0;
+}
+
+.m3u-divider span {
+    background: var(--bg-dark);
+    padding: 0 12px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
 }
 
 .m3u-modal-header {
