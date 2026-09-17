@@ -467,6 +467,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const isFav = isFavorite(channel.url);
 
             card.innerHTML = `
+                <span class="card-status-badge">
+                    <i class="fa-solid fa-circle"></i> Live
+                </span>
                 <button class="card-fav-btn ${isFav ? 'active' : ''}" title="Favorite">
                     <i class="${isFav ? 'fa-solid' : 'fa-regular'} fa-star"></i>
                 </button>

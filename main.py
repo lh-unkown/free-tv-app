@@ -5,18 +5,10 @@ import httpx
 import uvicorn
 import os
 import re
+import time
 from pathlib import Path
 from typing import List, Dict, Any
 import asyncio
-
-async def check_stream_health(client: httpx.AsyncClient, channel: dict) -> dict:
-    try:
-        # Use a quick GET stream request to read headers without downloading the full video
-        async with client.stream("GET", channel['url'], timeout=3.0, follow_redirects=True) as response:
-            channel['working'] = response.status_code < 400 or response.status_code in [401, 403, 405]
-    except Exception:
-        channel['working'] = False
-    return channel
 
 app = FastAPI(title="Free TV App")
 
@@ -28,11 +20,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+HEALTH_CACHE = {}  # url -> (is_working, timestamp)
+CACHE_TTL = 600    # 10 minutes cache
+
+async def check_stream_health(client: httpx.AsyncClient, channel: dict) -> dict:
+    url = channel.get('url')
+    if not url:
+        channel['working'] = False
+        return channel
+    
+    # Check cache first
+    now = time.time()
+    if url in HEALTH_CACHE:
+        is_working, ts = HEALTH_CACHE[url]
+        if now - ts < CACHE_TTL:
+            channel['working'] = is_working
+            return channel
+            
+    try:
+        # Quick stream GET request to read headers without downloading video body
+        async with client.stream("GET", url, timeout=2.5, follow_redirects=True) as response:
+            is_working = response.status_code < 400 or response.status_code in [401, 403, 405]
+    except Exception:
+        is_working = False
+        
+    HEALTH_CACHE[url] = (is_working, now)
+    channel['working'] = is_working
+    return channel
+
+async def filter_working_channels(channels: list, max_verify: int = 80) -> list:
+    if not channels:
+        return []
+        
+    channels_to_verify = channels[:max_verify]
+    
+    limits = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+    async with httpx.AsyncClient(limits=limits, verify=False) as client:
+        tasks = [check_stream_health(client, dict(c)) for c in channels_to_verify]
+        results = await asyncio.gather(*tasks)
+        
+    working = [c for c in results if c.get('working')]
+    
+    # If stream health check returned working streams, return only working ones
+    if len(working) >= 2:
+        return working
+    # Fallback to first 40 channels if verification timed out on all
+    return channels[:40]
+
 def parse_m3u(content: str):
     channels = []
     current_channel = {}
     
-    # regex to match attributes like tvg-logo="url"
     attr_pattern = re.compile(r'([\w-]+)="([^"]*)"')
     
     for line in content.splitlines():
@@ -42,13 +80,10 @@ def parse_m3u(content: str):
         
         if line.startswith("#EXTINF:"):
             current_channel = {}
-            # The line format: #EXTINF:-1 tvg-id="id" tvg-logo="logo" group-title="Comedy",Channel Name
-            # Split by comma to get the channel name
             parts = line.split(',', 1)
             name = parts[1].strip() if len(parts) > 1 else "Unknown"
             current_channel['name'] = name
             
-            # Find all attributes
             attrs = attr_pattern.findall(parts[0])
             for key, value in attrs:
                 current_channel[key] = value
@@ -98,7 +133,6 @@ async def get_global_channels() -> List[Dict[str, Any]]:
         
     url = "https://iptv-org.github.io/iptv/index.m3u"
     async with httpx.AsyncClient() as client:
-        # 30MB global index might take a bit
         response = await client.get(url, timeout=120.0)
         response.raise_for_status()
         GLOBAL_CHANNELS = parse_m3u(response.text)
@@ -114,7 +148,6 @@ async def get_countries():
             response = await client.get(url, timeout=10.0)
             response.raise_for_status()
             countries = response.json()
-            # Sort countries by name
             countries.sort(key=lambda x: x.get('name', ''))
             countries.insert(0, {"name": "🏏 Global Sports (Live Cricket First)", "code": "SPORTS"})
             countries.insert(1, {"name": "📻 Global Radio", "code": "RADIO"})
@@ -126,7 +159,6 @@ async def get_countries():
 async def get_channels(country_code: str):
     is_country = country_code.upper() not in ["SPORTS", "RADIO"]
     
-    # Fetch the M3U playlist for the specific country
     if country_code.upper() == "SPORTS":
         url = "https://iptv-org.github.io/iptv/categories/sports.m3u"
     elif country_code.upper() == "RADIO":
@@ -178,42 +210,25 @@ async def get_channels(country_code: str):
             else:
                 response = await client.get(url, timeout=20.0)
                 if response.status_code == 404:
-                    return [] # No channels found for this country
+                    return []
                 response.raise_for_status()
                 channels = parse_m3u(response.text)
             
             if country_code.lower() == "lk":
-                channels.extend(CUSTOM_LK_CHANNELS)
+                channels = CUSTOM_LK_CHANNELS + channels
                 
             if country_code.upper() == "SPORTS":
-                # Prioritize cricket channels
                 cricket_keywords = ["cricket", "star sports", "willow", "fox cricket", "ptv sports", "ten sports", "sky sports"]
                 def sort_key(c):
                     name = c.get('name', '').lower()
                     if any(kw in name for kw in cricket_keywords):
-                        return 0 # Top priority for Cricket
-                    return 1 # Normal priority
-                
+                        return 0
+                    return 1
                 channels.sort(key=sort_key)
-                
-                # To prevent endless loading, only dynamically verify the top 100 important channels
-                channels_to_check = channels[:100]
-                
-                # Verify these streams concurrently
-                async with httpx.AsyncClient(limits=httpx.Limits(max_connections=100)) as health_client:
-                    tasks = [check_stream_health(health_client, c) for c in channels_to_check]
-                    checked_channels = await asyncio.gather(*tasks)
-                
-                # Filter only the channels that responded successfully
-                working_channels = [c for c in checked_channels if c.get('working')]
-                
-                # Fallback in case every single one timed out
-                if len(working_channels) < 5:
-                    return channels[:50]
-                
-                return working_channels
-                
-            return channels
+
+            # Filter channels by checking live stream health before returning
+            working_channels = await filter_working_channels(channels, max_verify=80)
+            return working_channels
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch channels: {str(e)}")
 
@@ -225,11 +240,9 @@ async def search_channels(q: str):
     try:
         channels = await get_global_channels()
         q_lower = q.lower()
-        # Find matches by searching substring in channel name
         results = [c for c in channels if q_lower in c.get('name', '').lower()]
-        
-        # Limit to 150 results so the frontend doesn't freeze with too many DOM elements
-        return results[:150]
+        working_results = await filter_working_channels(results[:60], max_verify=60)
+        return working_results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
@@ -242,7 +255,8 @@ async def parse_m3u_url(url: str):
             response = await client.get(url, timeout=15.0, follow_redirects=True)
             response.raise_for_status()
             channels = parse_m3u(response.text)
-            return channels
+            working_channels = await filter_working_channels(channels, max_verify=80)
+            return working_channels
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch M3U playlist: {str(e)}")
 
@@ -263,14 +277,10 @@ PRESET_PLAYLISTS = [
 async def get_preset_playlists():
     return PRESET_PLAYLISTS
 
-
-
-
 # Mount the static directory
 static_dir = Path(__file__).parent / "static"
 os.makedirs(static_dir, exist_ok=True)
 
-# create dummy index.html if static directory is empty to avoid startup errors
 index_file = static_dir / "index.html"
 if not index_file.exists():
     index_file.write_text("<html><body>Frontend loading...</body></html>")
